@@ -1,0 +1,161 @@
+// DHT Variables
+#include "Adafruit_DHT.h"
+#define DHTPIN A5     
+#define DHTTYPE DHT11	
+DHT dht(DHTPIN, DHTTYPE);
+float temperatureTotal = 0;
+int temperatureReadings = 0;
+float humidityTotal = 0;
+int humidityReadings = 0;
+
+// Motion sensor variables
+int motionPin = D2;
+int pirState = LOW;
+int motionVal = 0;
+float motionTotal = 0;
+float motionReadings = 0;
+
+// Soil moisture sensor variables
+int soilMoisturePin = A4;
+int soilMoistureVal = 0;
+float moistureTotal = 0;
+float moistureReadings = 0;
+
+
+int timer = 0;
+bool completion;
+
+void setup() {
+	// DHT Setup
+	dht.begin();
+	
+	// Motion sensor setup
+	pinMode(motionPin, INPUT);
+	
+	// Soil moisture sensor setup
+	pinMode(soilMoisturePin, INPUT);
+}
+
+void loop() {
+    
+    if (!completion) 
+    {
+        // If 300 seconds (5 minutes) have passed, then calculate the readings
+        if (timer >= 300) 
+        { 
+            float moistureAvg = moistureTotal / moistureReadings;
+            if (moistureAvg >= 1000) 
+            {
+                Particle.publish("drying_time","It is raining and washing may not dry");
+            }
+            else 
+            {
+                float motionAvg = motionTotal / motionReadings;
+                
+                float tempAvg = temperatureTotal / temperatureReadings;
+                float humAvg = humidityTotal / humidityReadings;
+            
+                
+                
+                // Wind approximation with the motion data
+                float windTime;
+                if (motionAvg < 0.2) windTime = 2.0;
+                else if (motionAvg < 0.4) windTime = 1.5;
+                else if (motionAvg < 0.6) windTime = 1.0;
+                else if (motionAvg < 0.8) windTime = 0.5;
+                else windTime = 0;
+                
+                // Approximation of the effect on drying time due to temperature
+                float tempTime;
+                if (temperatureReadings > 0) 
+                {
+                    if (tempAvg < 10) tempTime = 6;
+                    else if (tempAvg < 15) tempTime = 3;
+                    else if (tempAvg < 20) tempTime = 1;
+                    else if (tempAvg < 25) tempTime = 0.5;
+                    else if (tempAvg < 30) tempTime = 0;
+                    else tempTime = 0;
+                }
+                else 
+                {
+                    // Middle point estimation of temperature if no readings were recorded
+                    tempTime = 1;
+                }
+                
+                // Approximation of the effect on drying time due to humidity
+                float humTime;
+                if (humidityReadings > 0) 
+                {
+                    if (humAvg < 80) humTime = 0;
+                    else if (humAvg < 160) humTime = 1.0;
+                    else humTime = 2.0;
+                }
+                else 
+                {
+                    // Middle point estimation of humidity if no readings were recorded
+                    humTime = 0;
+                }
+                
+
+                
+                float dryingTime = windTime + tempTime + humTime;
+                
+                if (dryingTime < 3) 
+                {
+                    Particle.publish("drying_time","short");
+                }
+                else if (dryingTime < 5) 
+                {
+                    Particle.publish("drying_time","medium");
+                }
+                else 
+                {
+                    Particle.publish("drying_time","long");
+                }
+
+            }
+            
+            completion = true;
+        }
+        else 
+        {
+            // Wait a second between measurements.
+        	delay(1000);
+        	timer++;
+            
+            motionVal = digitalRead(motionPin);
+            motionReadings++;
+            motionTotal += motionVal;
+            
+            
+            soilMoistureVal = analogRead(soilMoisturePin);
+            moistureReadings++;
+            moistureTotal += soilMoistureVal;
+            
+            // Read temp and humidity every 5 seconds
+            if (timer % 5 == 0) {
+                float h = dht.getHumidity();
+            	float t = dht.getTempCelcius();
+    
+            	if (!isnan(h)) 
+            	{
+            	    if (h < 255) 
+            	    {
+            	        humidityTotal += h;
+            		    humidityReadings++;
+            	    }
+            	} 
+            	
+            	if (!isnan(t)) 
+            	{
+            	    if (t < 255) 
+            	    {
+                	    temperatureTotal += t;
+                        temperatureReadings++;
+            	    }
+    
+            	}
+            }
+        }
+    }
+}
